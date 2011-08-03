@@ -58,6 +58,30 @@ describe 'nginx mod' do
       
       get(data, sign).should respond_with(Net::HTTPForbidden)
     end
+
+    it 'should allow access to content with time less than 30 seconds into the future' do
+      time = Time.now.to_i
+      data = "3, 69.31.17.132, 80.169.32.154, #{time + 29}, 13459971.1599924223, 117542"
+      sign = sign_data(data)
+      
+      get(data, sign).should respond_with(Net::HTTPOK)
+    end
+
+    it 'should disallow access to content with time more than 30 seconds into the past' do
+      time = Time.now.to_i
+      data = "3, 69.31.17.132, 80.169.32.154, #{time - 31}, 13459971.1599924223, 117542"
+      sign = sign_data(data)
+      
+      get(data, sign).should respond_with(Net::HTTPForbidden)
+    end
+
+    it 'should allow access to content with time less than 30 seconds into the past' do
+      time = Time.now.to_i
+      data = "3, 69.31.17.132, 80.169.32.154, #{time - 29}, 13459971.1599924223, 117542"
+      sign = sign_data(data)
+      
+      get(data, sign).should respond_with(Net::HTTPOK)
+    end
     
     it 'should disallow access to content with wrong signature' do
       data = '3, 69.31.17.132, 80.169.32.154, 1311262737, 13459971.1599924223, 117542'

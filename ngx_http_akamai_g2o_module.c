@@ -190,7 +190,7 @@ int check_has_g2o_headers(ngx_http_request_t *r, ngx_list_t headers) {
         // lets call it 40, just in case
         u_char base64 [40];
 
-        u_int version, time;
+        u_int version, auth_time;
         ngx_str_t nonce;
 
         HMAC_Init(&hmac, key, strlen(key), EVP_md5());
@@ -201,12 +201,20 @@ int check_has_g2o_headers(ngx_http_request_t *r, ngx_list_t headers) {
         binary_to_hex_string(md, md_len, hex);
         binary_to_base64(md, md_len, base64);
 
-        get_auth_data_fields(r, header_data, &version, &time, &nonce);
+        get_auth_data_fields(r, header_data, &version, &auth_time, &nonce);
 
         ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "uri: %s", r->uri.data);
         ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "uri len: %d", r->uri.len);
         ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "hmac: %s", hex);
         ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "hmac base64: %s", base64);
+        
+        time_t current_time = ngx_time();
+
+        if (auth_time > current_time + 30)
+            return 0;
+
+        if (auth_time < current_time - 30)
+            return 0;
 
         return !ngx_strncmp(header_sign.data, base64, header_sign.len);
     } else {
@@ -223,11 +231,13 @@ void get_auth_data_fields(ngx_http_request_t *r, ngx_str_t data, u_int *version,
     char *nonce_field = strtok(NULL, ",");
 
     ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "version: %s", version_field);
-    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "version: %s", ghost_ip_field);
-    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "version: %s", client_ip_field);
-    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "version: %s", time_field);
-    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "version: %s", unique_id_field);
-    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "version: %s", nonce_field);
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "ghost ip: %s", ghost_ip_field);
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "client ip: %s", client_ip_field);
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "time: %s", time_field);
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "unique_id: %s", unique_id_field);
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "nonce: %s", nonce_field);
+    
+    *time = atoi(time_field);
 }
 
 void binary_to_base64(unsigned char *md, unsigned int md_len, u_char *base64_out) {
