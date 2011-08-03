@@ -93,7 +93,7 @@ static ngx_command_t  ngx_http_accesskey_commands[] = {
 };
 
 
-static ngx_http_module_t  ngx_http_accesskey_module_ctx = {
+static ngx_http_module_t  ngx_http_akamai_g2o_module_ctx = {
     NULL,                                  /* preconfiguration */
     ngx_http_accesskey_init,                  /* postconfiguration */
 
@@ -108,9 +108,9 @@ static ngx_http_module_t  ngx_http_accesskey_module_ctx = {
 };
 
 
-ngx_module_t  ngx_http_accesskey_module = {
+ngx_module_t  ngx_http_akamai_g2o_module = {
     NGX_MODULE_V1,
-    &ngx_http_accesskey_module_ctx,           /* module context */
+    &ngx_http_akamai_g2o_module_ctx,           /* module context */
     ngx_http_accesskey_commands,              /* module directives */
     NGX_HTTP_MODULE,                       /* module type */
     NULL,                                  /* init master */
@@ -262,7 +262,7 @@ ngx_http_accesskey_handler(ngx_http_request_t *r)
     ngx_uint_t   hashlength,bhashlength;
     ngx_http_accesskey_loc_conf_t  *alcf;
 
-    alcf = ngx_http_get_module_loc_conf(r, ngx_http_accesskey_module);
+    alcf = ngx_http_get_module_loc_conf(r, ngx_http_akamai_g2o_module);
 
     if (!alcf->enable) {
         return NGX_OK;
@@ -378,7 +378,7 @@ static char *
 ngx_http_accesskey_signature(ngx_conf_t *cf, void *post, void *data)
 {
     ngx_http_accesskey_loc_conf_t *alcf =
-	    ngx_http_conf_get_module_loc_conf(cf, ngx_http_accesskey_module);
+	    ngx_http_conf_get_module_loc_conf(cf, ngx_http_akamai_g2o_module);
 
     return ngx_http_accesskey_compile_signature(cf, alcf);
 }
