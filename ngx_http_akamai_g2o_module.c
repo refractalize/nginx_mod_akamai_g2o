@@ -1,6 +1,7 @@
 /*
  * nginx (c) Igor Sysoev
- * this module (C) Mykola Grechukh <gns@altlinux.org>
+ * ngx_http_accesskey_module (C) Mykola Grechukh <gns@altlinux.org>
+ * adapted to Akamai G2O (C) Tim Macfarlane <timmacfarlane@gmail.com>
  */
 
 
@@ -42,35 +43,35 @@ typedef struct {
     ngx_str_t     signature;
     ngx_array_t  *signature_lengths;
     ngx_array_t  *signature_values;
-} ngx_http_accesskey_loc_conf_t;
+} ngx_http_akamai_g2o_loc_conf_t;
 
-static ngx_int_t ngx_http_accesskey_handler(ngx_http_request_t *r);
+static ngx_int_t ngx_http_akamai_g2o_handler(ngx_http_request_t *r);
 
-static char *ngx_http_accesskey_signature(ngx_conf_t *cf, void *post, void *data);
-static char *ngx_http_accesskey_hashmethod(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+static char *ngx_http_akamai_g2o_signature(ngx_conf_t *cf, void *post, void *data);
+static char *ngx_http_akamai_g2o_hashmethod(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
-static void *ngx_http_accesskey_create_loc_conf(ngx_conf_t *cf);
-static char *ngx_http_accesskey_merge_loc_conf(ngx_conf_t *cf,
+static void *ngx_http_akamai_g2o_create_loc_conf(ngx_conf_t *cf);
+static char *ngx_http_akamai_g2o_merge_loc_conf(ngx_conf_t *cf,
     void *parent, void *child);
-static ngx_int_t ngx_http_accesskey_init(ngx_conf_t *cf);
+static ngx_int_t ngx_http_akamai_g2o_init(ngx_conf_t *cf);
 
 void binary_to_base64(unsigned char *md, unsigned int md_len, u_char *base64_out);
 void get_auth_data_fields(ngx_http_request_t *r, ngx_str_t data, u_int *version, u_int *time, ngx_str_t *nonce);
 
-static ngx_conf_post_handler_pt  ngx_http_accesskey_signature_p =
-    ngx_http_accesskey_signature;
+static ngx_conf_post_handler_pt  ngx_http_akamai_g2o_signature_p =
+    ngx_http_akamai_g2o_signature;
 
-static ngx_command_t  ngx_http_accesskey_commands[] = {
+static ngx_command_t  ngx_http_akamai_g2o_commands[] = {
     { ngx_string("accesskey"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_accesskey_loc_conf_t, enable),
+      offsetof(ngx_http_akamai_g2o_loc_conf_t, enable),
       NULL },
 
     { ngx_string("accesskey_hashmethod"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_http_accesskey_hashmethod,
+      ngx_http_akamai_g2o_hashmethod,
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
       NULL },
@@ -79,14 +80,14 @@ static ngx_command_t  ngx_http_accesskey_commands[] = {
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_str_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_accesskey_loc_conf_t, signature),
-      &ngx_http_accesskey_signature_p },
+      offsetof(ngx_http_akamai_g2o_loc_conf_t, signature),
+      &ngx_http_akamai_g2o_signature_p },
 
     { ngx_string("accesskey_arg"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_str_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_accesskey_loc_conf_t, arg),
+      offsetof(ngx_http_akamai_g2o_loc_conf_t, arg),
       NULL },
 
       ngx_null_command
@@ -95,7 +96,7 @@ static ngx_command_t  ngx_http_accesskey_commands[] = {
 
 static ngx_http_module_t  ngx_http_akamai_g2o_module_ctx = {
     NULL,                                  /* preconfiguration */
-    ngx_http_accesskey_init,                  /* postconfiguration */
+    ngx_http_akamai_g2o_init,                  /* postconfiguration */
 
     NULL,                                  /* create main configuration */
     NULL,                                  /* init main configuration */
@@ -103,15 +104,15 @@ static ngx_http_module_t  ngx_http_akamai_g2o_module_ctx = {
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
 
-    ngx_http_accesskey_create_loc_conf,       /* create location configuration */
-    ngx_http_accesskey_merge_loc_conf         /* merge location configuration */
+    ngx_http_akamai_g2o_create_loc_conf,       /* create location configuration */
+    ngx_http_akamai_g2o_merge_loc_conf         /* merge location configuration */
 };
 
 
 ngx_module_t  ngx_http_akamai_g2o_module = {
     NGX_MODULE_V1,
     &ngx_http_akamai_g2o_module_ctx,           /* module context */
-    ngx_http_accesskey_commands,              /* module directives */
+    ngx_http_akamai_g2o_commands,              /* module directives */
     NGX_HTTP_MODULE,                       /* module type */
     NULL,                                  /* init master */
     NULL,                                  /* init module */
@@ -260,7 +261,7 @@ void binary_to_base64(unsigned char *md, unsigned int md_len, u_char *base64_out
 }
 
 static ngx_int_t
-ngx_http_accesskey_handler(ngx_http_request_t *r)
+ngx_http_akamai_g2o_handler(ngx_http_request_t *r)
 {
     ngx_list_t headers = r->headers_in.headers;
 
@@ -270,7 +271,7 @@ ngx_http_accesskey_handler(ngx_http_request_t *r)
 
     ngx_uint_t   i;
     ngx_uint_t   hashlength,bhashlength;
-    ngx_http_accesskey_loc_conf_t  *alcf;
+    ngx_http_akamai_g2o_loc_conf_t  *alcf;
 
     alcf = ngx_http_get_module_loc_conf(r, ngx_http_akamai_g2o_module);
 
@@ -363,7 +364,7 @@ ngx_http_accesskey_handler(ngx_http_request_t *r)
 }
 
 static char *
-ngx_http_accesskey_compile_signature(ngx_conf_t *cf, ngx_http_accesskey_loc_conf_t *alcf)
+ngx_http_akamai_g2o_compile_signature(ngx_conf_t *cf, ngx_http_akamai_g2o_loc_conf_t *alcf)
 {
 
     ngx_http_script_compile_t   sc;
@@ -385,19 +386,19 @@ ngx_http_accesskey_compile_signature(ngx_conf_t *cf, ngx_http_accesskey_loc_conf
 }
 
 static char *
-ngx_http_accesskey_signature(ngx_conf_t *cf, void *post, void *data)
+ngx_http_akamai_g2o_signature(ngx_conf_t *cf, void *post, void *data)
 {
-    ngx_http_accesskey_loc_conf_t *alcf =
+    ngx_http_akamai_g2o_loc_conf_t *alcf =
 	    ngx_http_conf_get_module_loc_conf(cf, ngx_http_akamai_g2o_module);
 
-    return ngx_http_accesskey_compile_signature(cf, alcf);
+    return ngx_http_akamai_g2o_compile_signature(cf, alcf);
 }
 
 static char *
-ngx_http_accesskey_hashmethod(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ngx_http_akamai_g2o_hashmethod(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_str_t *d = cf->args->elts;
-    ngx_http_accesskey_loc_conf_t *alcf = conf;
+    ngx_http_akamai_g2o_loc_conf_t *alcf = conf;
 
     if ( (d[1].len == 3 ) && (ngx_strncmp(d[1].data,"md5",3) == 0) ) {
         alcf->hashmethod = NGX_ACCESSKEY_MD5;
@@ -412,11 +413,11 @@ ngx_http_accesskey_hashmethod(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 }
 
 static void *
-ngx_http_accesskey_create_loc_conf(ngx_conf_t *cf)
+ngx_http_akamai_g2o_create_loc_conf(ngx_conf_t *cf)
 {
-    ngx_http_accesskey_loc_conf_t  *conf;
+    ngx_http_akamai_g2o_loc_conf_t  *conf;
 
-    conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_accesskey_loc_conf_t));
+    conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_akamai_g2o_loc_conf_t));
     if (conf == NULL) {
         return NGX_CONF_ERROR;
     }
@@ -426,20 +427,20 @@ ngx_http_accesskey_create_loc_conf(ngx_conf_t *cf)
 
 
 static char *
-ngx_http_accesskey_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
+ngx_http_akamai_g2o_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 {
-    ngx_http_accesskey_loc_conf_t  *prev = parent;
-    ngx_http_accesskey_loc_conf_t  *conf = child;
+    ngx_http_akamai_g2o_loc_conf_t  *prev = parent;
+    ngx_http_akamai_g2o_loc_conf_t  *conf = child;
     ngx_conf_merge_value(conf->enable, prev->enable, 0);
     ngx_conf_merge_uint_value(conf->hashmethod, prev->hashmethod, NGX_ACCESSKEY_MD5);
     ngx_conf_merge_str_value(conf->arg, prev->arg, "key");
     ngx_conf_merge_str_value(conf->signature,prev->signature,"$remote_addr");
-    return ngx_http_accesskey_compile_signature(cf, conf);
+    return ngx_http_akamai_g2o_compile_signature(cf, conf);
 }
 
 
 static ngx_int_t
-ngx_http_accesskey_init(ngx_conf_t *cf)
+ngx_http_akamai_g2o_init(ngx_conf_t *cf)
 {
     ngx_http_handler_pt        *h;
     ngx_http_core_main_conf_t  *cmcf;
@@ -451,7 +452,7 @@ ngx_http_accesskey_init(ngx_conf_t *cf)
         return NGX_ERROR;
     }
 
-    *h = ngx_http_accesskey_handler;
+    *h = ngx_http_akamai_g2o_handler;
 
     return NGX_OK;
 }
