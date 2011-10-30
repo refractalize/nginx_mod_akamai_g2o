@@ -27,17 +27,6 @@ describe 'nginx mod' do
     Process.kill "TERM", @nginx_pid
   end
 
-  describe 'access key' do
-    it 'should disallow access to content without an access key' do
-      expect {RestClient.get 'http://localhost:8080/download/stuff.html'}.to raise_error(RestClient::Forbidden)
-    end
-    
-    it 'should allow access to content with an access key' do
-      response = RestClient.get "http://localhost:8080/download/stuff.html?key=#{Digest::MD5.hexdigest("mypass")}"
-      response.code.should == 200
-    end
-  end
-
   describe 'G2O headers' do
     before :each do
       @uri = URI.parse('http://localhost:8080/download/stuff.html')
@@ -46,7 +35,9 @@ describe 'nginx mod' do
     def g2o_data_header(options = {})
       time = (options[:time] or Time.now)
       token = (options[:token] or "token")
-      "3, 69.31.17.132, 80.169.32.154, #{time.to_i}, 13459971.1599924223, #{token}"
+      version = (options[:version] or 3)
+
+      "#{version}, 69.31.17.132, 80.169.32.154, #{time.to_i}, 13459971.1599924223, #{token}"
     end
 
     it 'should allow access to content with correct G2O headers' do
@@ -95,6 +86,18 @@ describe 'nginx mod' do
       data = g2o_data_header(:token => "wrong_token")
       sign = sign_data(data)
       
+      get(data, sign).should respond_with(Net::HTTPForbidden)
+    end
+
+    it 'should disallow access to content if data header is badly formated' do
+      data = "3, 69.31.17.132"
+      sign = sign_data(data)
+      get(data, sign).should respond_with(Net::HTTPForbidden)
+    end
+
+    it 'should disallow access to content if using wrong version' do
+      data = g2o_data_header(:version => 2)
+      sign = sign_data(data)
       get(data, sign).should respond_with(Net::HTTPForbidden)
     end
     

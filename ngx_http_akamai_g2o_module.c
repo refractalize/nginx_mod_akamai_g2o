@@ -57,8 +57,9 @@ static char *ngx_http_akamai_g2o_merge_loc_conf(ngx_conf_t *cf,
     void *parent, void *child);
 static ngx_int_t ngx_http_akamai_g2o_init(ngx_conf_t *cf);
 
+void base64_signature_of_data(ngx_http_request_t *r, ngx_str_t data, ngx_str_t key, u_char *signature);
 void binary_to_base64(unsigned char *md, unsigned int md_len, u_char *base64_out);
-void get_auth_data_fields(ngx_http_request_t *r, ngx_str_t data, u_int *version, u_int *time, ngx_str_t *nonce);
+int try_get_auth_data_fields(ngx_str_t data, u_int *version, u_int *time, ngx_str_t *nonce);
 
 static ngx_conf_post_handler_pt  ngx_http_akamai_g2o_signature_p =
     ngx_http_akamai_g2o_signature;
@@ -140,33 +141,13 @@ ngx_module_t  ngx_http_akamai_g2o_module = {
     NGX_MODULE_V1_PADDING
 };
 
-/*
- *
- */
-void binary_to_hex_string(u_char* binary, ngx_uint_t binary_length, u_char* hex) {
-    static u_char hex_chars[] = "0123456789abcdef";
-    u_char *text = hex;
-    ngx_uint_t   i;
-
-    for (i = 0; i < binary_length; i++) {
-        *text++ = hex_chars[binary[i] >> 4];
-        *text++ = hex_chars[binary[i] & 0xf];
-    }
-
-    *text = '\0';
-}
-
-int check_has_g2o_headers(ngx_http_request_t *r, ngx_list_t headers, ngx_http_akamai_g2o_loc_conf_t  *alcf) {
+void get_data_and_sign_from_request_headers(ngx_http_request_t *r, ngx_str_t *header_data, ngx_str_t *header_sign) {
+    ngx_list_t headers = r->headers_in.headers;
     ngx_list_part_t *part = &headers.part;
     ngx_table_elt_t* data = part->elts;
     ngx_table_elt_t header;
 
-    ngx_str_t header_data, header_sign;
-
     unsigned int i;
-
-    int has_data = 0;
-    int has_sign = 0;
 
     for (i = 0 ;; i++) {
 
@@ -185,29 +166,21 @@ int check_has_g2o_headers(ngx_http_request_t *r, ngx_list_t headers, ngx_http_ak
 
         if (ngx_strcasecmp((u_char*) "X-Akamai-G2O-Auth-Data", header.key.data) == 0) {
             ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "found X-Akamai-G2O-Auth-Data");
-            has_data = 1;
-            header_data = header.value;
+            *header_data = header.value;
         }
         if (ngx_strcasecmp((u_char*) "X-Akamai-G2O-Auth-Sign", header.key.data) == 0) {
             ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "found X-Akamai-G2O-Auth-Sign");
-            has_sign = 1;
-            header_sign = header.value;
+            *header_sign = header.value;
         }
     }
+}
 
-    if (has_data && has_sign) {
-        unsigned char md [EVP_MAX_MD_SIZE];
-        unsigned int md_len;
-        u_char hex [128];
-        HMAC_CTX hmac;
-        // for base64 we need: ceiling(16 / 3) * 4 + 1 = 25 bytes
-        // where 16 is MD5 digest length
-        // + 1 for the string termination char
-        // lets call it 40, just in case
-        u_char base64 [40];
+int check_has_g2o_headers(ngx_http_request_t *r, ngx_http_akamai_g2o_loc_conf_t  *alcf) {
+    ngx_str_t header_data = ngx_null_string, header_sign = ngx_null_string;
+    get_data_and_sign_from_request_headers(r, &header_data, &header_sign);
 
-        u_int version, auth_time;
-        ngx_str_t nonce;
+    if (header_data.data && header_sign.data) {
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "got both data and sign");
 
         if (!alcf->key.data) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
@@ -221,39 +194,53 @@ int check_has_g2o_headers(ngx_http_request_t *r, ngx_list_t headers, ngx_http_ak
             return 0;
         }
 
-        HMAC_Init(&hmac, alcf->key.data, alcf->key.len, EVP_md5());
-        HMAC_Update(&hmac, header_data.data, header_data.len);
-        HMAC_Update(&hmac, r->uri.data, r->uri.len);
-        HMAC_Final(&hmac, md, &md_len);
+        // for base64 we need: ceiling(16 / 3) * 4 + 1 = 25 bytes
+        // where 16 is MD5 digest length
+        // + 1 for the string termination char
+        // lets call it 40, just in case
+        u_char signature [40];
 
-        binary_to_hex_string(md, md_len, hex);
-        binary_to_base64(md, md_len, base64);
+        // signature is correct
+        base64_signature_of_data(r, header_data, alcf->key, signature);
 
-        get_auth_data_fields(r, header_data, &version, &auth_time, &nonce);
+        u_int version, auth_time;
+        ngx_str_t nonce;
 
-        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "uri: %s", r->uri.data);
-        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "uri len: %d", r->uri.len);
-        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "hmac: %s", hex);
-        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "hmac base64: %s", base64);
-        
-        time_t current_time = ngx_time();
-
-        // request not too far into the future
-        if (auth_time > current_time + 30)
-            return 0;
-
-        // request not too old
-        if (auth_time < current_time - 30)
-            return 0;
-
-        // nonce is correct
-        if (ngx_strcmp(nonce.data, alcf->nonce.data)) {
+        if (!try_get_auth_data_fields(header_data, &version, &auth_time, &nonce)) {
+            ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "X-Akamai-G2O-Auth-Data not formatted correctly");
             return 0;
         }
 
-        // signature is correct
-        if (ngx_strncmp(header_sign.data, base64, header_sign.len))
+        time_t current_time = ngx_time();
+
+        // request using correct version of G2O
+        if (version != 3) {
+            ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "G2O version not 3");
             return 0;
+        }
+
+        // request not too far into the future
+        if (auth_time > current_time + 30) {
+            ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "request from too far into the future");
+            return 0;
+        }
+
+        // request not too old
+        if (auth_time < current_time - 30) {
+            ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "request too old");
+            return 0;
+        }
+
+        // nonce is correct
+        if (ngx_strcmp(nonce.data, alcf->nonce.data)) {
+            ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "nonce incorrect");
+            return 0;
+        }
+
+        if (ngx_strncmp(header_sign.data, signature, header_sign.len)) {
+            ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "signature incorrect, expected '%s' got '%s'", signature, header_sign.data);
+            return 0;
+        }
 
         // request past all checks, content is good to go!
         return 1;
@@ -262,24 +249,45 @@ int check_has_g2o_headers(ngx_http_request_t *r, ngx_list_t headers, ngx_http_ak
     }
 }
 
-void get_auth_data_fields(ngx_http_request_t *r, ngx_str_t data, u_int *version, u_int *time, ngx_str_t *nonce) {
-    char *version_field = strtok((char*) data.data, ", ");
-    char *ghost_ip_field = strtok(NULL, ", ");
-    char *client_ip_field = strtok(NULL, ", ");
-    char *time_field = strtok(NULL, ", ");
-    char *unique_id_field = strtok(NULL, ", ");
-    char *nonce_field = strtok(NULL, ", ");
+void base64_signature_of_data(ngx_http_request_t *r, ngx_str_t data, ngx_str_t key, u_char *signature) {
+    unsigned char md [EVP_MAX_MD_SIZE];
+    unsigned int md_len;
+    HMAC_CTX hmac;
 
-    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "version: %s", version_field);
-    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "ghost ip: %s", ghost_ip_field);
-    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "client ip: %s", client_ip_field);
-    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "time: %s", time_field);
-    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "unique_id: %s", unique_id_field);
-    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "nonce: %s", nonce_field);
-    
+    HMAC_Init(&hmac, key.data, key.len, EVP_md5());
+    HMAC_Update(&hmac, data.data, data.len);
+    HMAC_Update(&hmac, r->uri.data, r->uri.len);
+    HMAC_Final(&hmac, md, &md_len);
+
+    binary_to_base64(md, md_len, signature);
+}
+
+int try_get_auth_data_fields(ngx_str_t data, u_int *version, u_int *time, ngx_str_t *nonce) {
+    char *version_field = strtok((char*) data.data, ", ");
+    if (!version_field)
+        return 0;
+    char *ghost_ip_field = strtok(NULL, ", ");
+    if (!ghost_ip_field)
+        return 0;
+    char *client_ip_field = strtok(NULL, ", ");
+    if (!client_ip_field)
+        return 0;
+    char *time_field = strtok(NULL, ", ");
+    if (!time_field)
+        return 0;
+    char *unique_id_field = strtok(NULL, ", ");
+    if (!unique_id_field)
+        return 0;
+    char *nonce_field = strtok(NULL, ", ");
+    if (!nonce_field)
+        return 0;
+
+    *version = atoi(version_field);
     *time = atoi(time_field);
     nonce->data = (unsigned char*) nonce_field;
     nonce->len = strlen(nonce_field);
+
+    return 1;
 }
 
 void binary_to_base64(unsigned char *md, unsigned int md_len, u_char *base64_out) {
@@ -304,10 +312,6 @@ void binary_to_base64(unsigned char *md, unsigned int md_len, u_char *base64_out
 static ngx_int_t
 ngx_http_akamai_g2o_handler(ngx_http_request_t *r)
 {
-    ngx_list_t headers = r->headers_in.headers;
-
-    ngx_uint_t   i;
-    ngx_uint_t   hashlength,bhashlength;
     ngx_http_akamai_g2o_loc_conf_t  *alcf;
 
     alcf = ngx_http_get_module_loc_conf(r, ngx_http_akamai_g2o_module);
@@ -316,92 +320,11 @@ ngx_http_akamai_g2o_handler(ngx_http_request_t *r)
         return NGX_OK;
     }
 
-    if (check_has_g2o_headers(r, headers, alcf)) {
+    if (check_has_g2o_headers(r, alcf)) {
         return NGX_OK;
-    }
-
-    if (!alcf->signature_lengths || !alcf->signature_values) {
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-            "accesskey enabled, but signature not configured!");
+    } else {
         return NGX_HTTP_FORBIDDEN;
     }
-
-    switch(alcf->hashmethod) {
-        case NGX_ACCESSKEY_SHA1:
-            bhashlength=20; break;
-
-	case NGX_ACCESSKEY_MD5:
-            bhashlength=16; break;
-
-        default: 
-           ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-               "accesskey: hash not supported");
-           return NGX_HTTP_FORBIDDEN;
-    }
-    hashlength=bhashlength*2;
-
-    ngx_str_t args = r->args;
-    ngx_str_t look = alcf->arg;
-
-    ngx_uint_t j=0,k=0,l=0;
-
-    for (i = 0; i <= args.len; i++) {
-        if ( ( i == args.len) || (args.data[i] == '&') ) {
-            if (j > 1) { k = j; l = i; }
-            j = 0;
-        } else if ( (j == 0) && (i<args.len-look.len) ) {
-            if ( (ngx_strncmp(args.data+i, look.data, look.len) == 0)
-                    && (args.data[i+look.len] == '=') ) {
-                j=i+look.len+1;
-                i=j-1;
-            } else j=1;
-        }
-    }
-
-    if (l-k!=hashlength) {
-        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-            "accesskey: length %d of \"%V\" argument is not equal %d",
-            l-k, &look, hashlength);
-        return NGX_HTTP_FORBIDDEN;
-    }
-
-    ngx_str_t val;
-    if (ngx_http_script_run(r, &val, alcf->signature_lengths->elts, 0, alcf->signature_values->elts) == NULL) {
-        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-            "accesskey: evaluation failed");
-        return NGX_ERROR;
-    }
-
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-            "accesskey: evaluated value of signature: \"%V\"", &val);
-
-    u_char hashb[64], hasht[128];
-
-    MD5_CTX md5;
-    SHA_CTX sha;
-
-    switch(alcf->hashmethod) {
-	case NGX_ACCESSKEY_MD5: 
-            MD5Init(&md5);
-            MD5Update(&md5,val.data,val.len);
-            MD5Final(hashb, &md5);
-            break;
-        case NGX_ACCESSKEY_SHA1: 
-            SHA1_Init(&sha);
-            SHA1_Update(&sha,val.data,val.len);
-            SHA1_Final(hashb,&sha);
-            break;
-    };
-
-    binary_to_hex_string(hashb, bhashlength, hasht);
-
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-            "accesskey: hash value \"%s\"", hasht);
-
-    if (ngx_strncmp(hasht,args.data+k,hashlength)!=0)
-            return NGX_HTTP_FORBIDDEN;
-
-    return NGX_OK;
 }
 
 static char *
