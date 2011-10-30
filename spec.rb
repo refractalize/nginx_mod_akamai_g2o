@@ -98,11 +98,41 @@ describe 'nginx mod' do
       get(data, sign).should respond_with(Net::HTTPForbidden)
     end
     
+    context "with path that accepts token1 token" do
+      before do
+        @uri = URI.parse('http://localhost:8080/allow_token1/stuff.html')
+      end
+
+      it 'should allow access to content with token1' do
+        data = g2o_data_header(:token => "token1")
+        sign = sign_data(data, :key => "a_different_password")
+
+        get(data, sign).should respond_with(Net::HTTPOK)
+      end
+
+      it 'should disallow access to content with token2' do
+        data = g2o_data_header(:token => "token2")
+        sign = sign_data(data, :key => "a_different_password")
+
+        get(data, sign).should respond_with(Net::HTTPForbidden)
+      end
+    end
+
+    context "with path that has g2o turned off" do
+      before do
+        @uri = URI.parse('http://localhost:8080/allow_all/stuff.html')
+      end
+
+      it 'should allow all requests' do
+        get.should respond_with(Net::HTTPOK)
+      end
+    end
+
     it 'should disallow access to content without G2O headers' do
       get.should respond_with(Net::HTTPForbidden)
     end
 
-    def get(data = nil, sign = nil)
+    def get(data = nil, sign = nil, options = {})
       Net::HTTP.start(@uri.host, @uri.port) do |http|
         headers = {}
 
@@ -113,8 +143,8 @@ describe 'nginx mod' do
       end
     end
     
-    def sign_data(data)
-      key = 'a_password'
+    def sign_data(data, options = {})
+      key = (options[:key] or 'a_password')
       digest = OpenSSL::HMAC.digest('md5', key, data + @uri.path)
       Base64.encode64(digest)
     end

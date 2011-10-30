@@ -21,12 +21,18 @@ task :setup_nginx do
 
   sh("patch prefix/conf/nginx.conf ../nginx.conf.patch")
 
-  mkdir_p "prefix/html/download"
-  cp "../success_page.html", "prefix/html/download/stuff.html"
+  make_content_dir 'download'
+  make_content_dir 'allow_token1'
+  make_content_dir 'allow_all'
+end
+
+def make_content_dir(dir)
+  mkdir_p "prefix/html/#{dir}"
+  cp "../success_page.html", "prefix/html/#{dir}/stuff.html"
 end
 
 task :make_conf_patch do
-  sh("diff -u #{$nginx_dir}/prefix/conf/nginx.conf.default #{$nginx_dir}/prefix/conf/nginx.conf > nginx.conf.patch")
+  system("diff -u #{$nginx_dir}/prefix/conf/nginx.conf.default #{$nginx_dir}/prefix/conf/nginx.conf", :out => "nginx.conf.patch")
 end
 
 task :run_nginx do

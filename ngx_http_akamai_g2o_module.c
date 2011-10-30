@@ -41,6 +41,8 @@ typedef struct {
     ngx_str_t     arg;
     ngx_uint_t    hashmethod;
     ngx_str_t     signature;
+    ngx_str_t     nonce;
+    ngx_str_t     key;
     ngx_array_t  *signature_lengths;
     ngx_array_t  *signature_values;
 } ngx_http_akamai_g2o_loc_conf_t;
@@ -62,7 +64,7 @@ static ngx_conf_post_handler_pt  ngx_http_akamai_g2o_signature_p =
     ngx_http_akamai_g2o_signature;
 
 static ngx_command_t  ngx_http_akamai_g2o_commands[] = {
-    { ngx_string("accesskey"),
+    { ngx_string("g2o"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
@@ -88,6 +90,20 @@ static ngx_command_t  ngx_http_akamai_g2o_commands[] = {
       ngx_conf_set_str_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_akamai_g2o_loc_conf_t, arg),
+      NULL },
+
+    { ngx_string("g2o_nonce"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_str_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_akamai_g2o_loc_conf_t, nonce),
+      NULL },
+
+    { ngx_string("g2o_key"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_str_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_akamai_g2o_loc_conf_t, key),
       NULL },
 
       ngx_null_command
@@ -140,7 +156,7 @@ void binary_to_hex_string(u_char* binary, ngx_uint_t binary_length, u_char* hex)
     *text = '\0';
 }
 
-int check_has_g2o_headers(ngx_http_request_t *r, ngx_list_t headers) {
+int check_has_g2o_headers(ngx_http_request_t *r, ngx_list_t headers, ngx_http_akamai_g2o_loc_conf_t  *alcf) {
     ngx_list_part_t *part = &headers.part;
     ngx_table_elt_t* data = part->elts;
     ngx_table_elt_t header;
@@ -184,7 +200,6 @@ int check_has_g2o_headers(ngx_http_request_t *r, ngx_list_t headers) {
         unsigned int md_len;
         u_char hex [128];
         HMAC_CTX hmac;
-        char key[] = "a_password";
         // for base64 we need: ceiling(16 / 3) * 4 + 1 = 25 bytes
         // where 16 is MD5 digest length
         // + 1 for the string termination char
@@ -194,7 +209,19 @@ int check_has_g2o_headers(ngx_http_request_t *r, ngx_list_t headers) {
         u_int version, auth_time;
         ngx_str_t nonce;
 
-        HMAC_Init(&hmac, key, strlen(key), EVP_md5());
+        if (!alcf->key.data) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "key not configured");
+            return 0;
+        }
+
+        if (!alcf->nonce.data) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "nonce not configured");
+            return 0;
+        }
+
+        HMAC_Init(&hmac, alcf->key.data, alcf->key.len, EVP_md5());
         HMAC_Update(&hmac, header_data.data, header_data.len);
         HMAC_Update(&hmac, r->uri.data, r->uri.len);
         HMAC_Final(&hmac, md, &md_len);
@@ -211,25 +238,37 @@ int check_has_g2o_headers(ngx_http_request_t *r, ngx_list_t headers) {
         
         time_t current_time = ngx_time();
 
+        // request not too far into the future
         if (auth_time > current_time + 30)
             return 0;
 
+        // request not too old
         if (auth_time < current_time - 30)
             return 0;
 
-        return !ngx_strncmp(header_sign.data, base64, header_sign.len);
+        // nonce is correct
+        if (ngx_strcmp(nonce.data, alcf->nonce.data)) {
+            return 0;
+        }
+
+        // signature is correct
+        if (ngx_strncmp(header_sign.data, base64, header_sign.len))
+            return 0;
+
+        // request past all checks, content is good to go!
+        return 1;
     } else {
         return 0;
     }
 }
 
 void get_auth_data_fields(ngx_http_request_t *r, ngx_str_t data, u_int *version, u_int *time, ngx_str_t *nonce) {
-    char *version_field = strtok((char*) data.data, ",");
-    char *ghost_ip_field = strtok(NULL, ",");
-    char *client_ip_field = strtok(NULL, ",");
-    char *time_field = strtok(NULL, ",");
-    char *unique_id_field = strtok(NULL, ",");
-    char *nonce_field = strtok(NULL, ",");
+    char *version_field = strtok((char*) data.data, ", ");
+    char *ghost_ip_field = strtok(NULL, ", ");
+    char *client_ip_field = strtok(NULL, ", ");
+    char *time_field = strtok(NULL, ", ");
+    char *unique_id_field = strtok(NULL, ", ");
+    char *nonce_field = strtok(NULL, ", ");
 
     ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "version: %s", version_field);
     ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "ghost ip: %s", ghost_ip_field);
@@ -239,6 +278,8 @@ void get_auth_data_fields(ngx_http_request_t *r, ngx_str_t data, u_int *version,
     ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "nonce: %s", nonce_field);
     
     *time = atoi(time_field);
+    nonce->data = (unsigned char*) nonce_field;
+    nonce->len = strlen(nonce_field);
 }
 
 void binary_to_base64(unsigned char *md, unsigned int md_len, u_char *base64_out) {
@@ -265,10 +306,6 @@ ngx_http_akamai_g2o_handler(ngx_http_request_t *r)
 {
     ngx_list_t headers = r->headers_in.headers;
 
-    if (check_has_g2o_headers(r, headers)) {
-        return NGX_OK;
-    }
-
     ngx_uint_t   i;
     ngx_uint_t   hashlength,bhashlength;
     ngx_http_akamai_g2o_loc_conf_t  *alcf;
@@ -276,6 +313,10 @@ ngx_http_akamai_g2o_handler(ngx_http_request_t *r)
     alcf = ngx_http_get_module_loc_conf(r, ngx_http_akamai_g2o_module);
 
     if (!alcf->enable) {
+        return NGX_OK;
+    }
+
+    if (check_has_g2o_headers(r, headers, alcf)) {
         return NGX_OK;
     }
 
