@@ -38,19 +38,11 @@
 
 typedef struct {
     ngx_flag_t    enable;
-    ngx_str_t     arg;
-    ngx_uint_t    hashmethod;
-    ngx_str_t     signature;
     ngx_str_t     nonce;
     ngx_str_t     key;
-    ngx_array_t  *signature_lengths;
-    ngx_array_t  *signature_values;
 } ngx_http_akamai_g2o_loc_conf_t;
 
 static ngx_int_t ngx_http_akamai_g2o_handler(ngx_http_request_t *r);
-
-static char *ngx_http_akamai_g2o_signature(ngx_conf_t *cf, void *post, void *data);
-static char *ngx_http_akamai_g2o_hashmethod(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 static void *ngx_http_akamai_g2o_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_akamai_g2o_merge_loc_conf(ngx_conf_t *cf,
@@ -61,36 +53,12 @@ void base64_signature_of_data(ngx_http_request_t *r, ngx_str_t data, ngx_str_t k
 void binary_to_base64(unsigned char *md, unsigned int md_len, u_char *base64_out);
 int try_get_auth_data_fields(ngx_str_t data, u_int *version, u_int *time, ngx_str_t *nonce);
 
-static ngx_conf_post_handler_pt  ngx_http_akamai_g2o_signature_p =
-    ngx_http_akamai_g2o_signature;
-
 static ngx_command_t  ngx_http_akamai_g2o_commands[] = {
     { ngx_string("g2o"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_akamai_g2o_loc_conf_t, enable),
-      NULL },
-
-    { ngx_string("accesskey_hashmethod"),
-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_http_akamai_g2o_hashmethod,
-      NGX_HTTP_LOC_CONF_OFFSET,
-      0,
-      NULL },
-
-    { ngx_string("accesskey_signature"),
-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_str_slot,
-      NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_akamai_g2o_loc_conf_t, signature),
-      &ngx_http_akamai_g2o_signature_p },
-
-    { ngx_string("accesskey_arg"),
-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_str_slot,
-      NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_akamai_g2o_loc_conf_t, arg),
       NULL },
 
     { ngx_string("g2o_nonce"),
@@ -327,55 +295,6 @@ ngx_http_akamai_g2o_handler(ngx_http_request_t *r)
     }
 }
 
-static char *
-ngx_http_akamai_g2o_compile_signature(ngx_conf_t *cf, ngx_http_akamai_g2o_loc_conf_t *alcf)
-{
-
-    ngx_http_script_compile_t   sc;
-    ngx_memzero(&sc, sizeof(ngx_http_script_compile_t));
-
-    sc.cf = cf;
-    sc.source = &alcf->signature;
-    sc.lengths = &alcf->signature_lengths;
-    sc.values = &alcf->signature_values;
-    sc.variables = ngx_http_script_variables_count(&alcf->signature);;
-    sc.complete_lengths = 1;
-    sc.complete_values = 1;
-
-    if (ngx_http_script_compile(&sc) != NGX_OK) {
-        return NGX_CONF_ERROR;
-    }
-
-    return NGX_CONF_OK;
-}
-
-static char *
-ngx_http_akamai_g2o_signature(ngx_conf_t *cf, void *post, void *data)
-{
-    ngx_http_akamai_g2o_loc_conf_t *alcf =
-	    ngx_http_conf_get_module_loc_conf(cf, ngx_http_akamai_g2o_module);
-
-    return ngx_http_akamai_g2o_compile_signature(cf, alcf);
-}
-
-static char *
-ngx_http_akamai_g2o_hashmethod(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
-{
-    ngx_str_t *d = cf->args->elts;
-    ngx_http_akamai_g2o_loc_conf_t *alcf = conf;
-
-    if ( (d[1].len == 3 ) && (ngx_strncmp(d[1].data,"md5",3) == 0) ) {
-        alcf->hashmethod = NGX_ACCESSKEY_MD5;
-    } else if ( (d[1].len == 4) && (ngx_strncmp(d[1].data,"sha1",4) == 0) ){
-        alcf->hashmethod = NGX_ACCESSKEY_SHA1;
-    } else {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-            "accesskey_hashmethod should be md5 or sha1, not \"%V\"", d+1);
-        return NGX_CONF_ERROR;
-    }
-    return NGX_CONF_OK;
-}
-
 static void *
 ngx_http_akamai_g2o_create_loc_conf(ngx_conf_t *cf)
 {
@@ -396,10 +315,9 @@ ngx_http_akamai_g2o_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_http_akamai_g2o_loc_conf_t  *prev = parent;
     ngx_http_akamai_g2o_loc_conf_t  *conf = child;
     ngx_conf_merge_value(conf->enable, prev->enable, 0);
-    ngx_conf_merge_uint_value(conf->hashmethod, prev->hashmethod, NGX_ACCESSKEY_MD5);
-    ngx_conf_merge_str_value(conf->arg, prev->arg, "key");
-    ngx_conf_merge_str_value(conf->signature,prev->signature,"$remote_addr");
-    return ngx_http_akamai_g2o_compile_signature(cf, conf);
+    ngx_conf_merge_str_value(conf->key, prev->key, "");
+    ngx_conf_merge_str_value(conf->nonce,prev->nonce, "");
+    return NGX_CONF_OK;
 }
 
 

@@ -1,5 +1,5 @@
---- nginx-1.0.5/prefix/conf/nginx.conf.default	2011-10-30 22:26:44.000000000 +0000
-+++ nginx-1.0.5/prefix/conf/nginx.conf	2011-10-30 22:21:40.000000000 +0000
+--- nginx-1.0.5/prefix/conf/nginx.conf.default	2011-10-30 23:29:45.000000000 +0000
++++ nginx-1.0.5/prefix/conf/nginx.conf	2011-10-30 23:29:23.000000000 +0000
 @@ -1,3 +1,4 @@
 +daemon off;
  
@@ -22,16 +22,13 @@
          server_name  localhost;
  
          #charset koi8-r;
-@@ -43,6 +45,27 @@
+@@ -43,6 +45,24 @@
          location / {
              root   html;
              index  index.html index.htm;
 +
 +            location /download {
 +                g2o                   on;
-+                accesskey_hashmethod  md5;
-+                accesskey_arg         "key";
-+                accesskey_signature   "mypass";
 +                g2o_nonce             "token";
 +                g2o_key               "a_password";
 +            }
