@@ -4,13 +4,6 @@ include FileUtils
 $nginx_version = "1.0.5"
 $nginx_dir = "nginx-#{$nginx_version}"
 
-def sh(cmd)
-  puts cmd
-  unless system(cmd)
-    raise "#{cmd} failed, exit: #{$?.exitstatus}"
-  end
-end
-
 task :setup_nginx do
   rm_rf $nginx_dir
 
