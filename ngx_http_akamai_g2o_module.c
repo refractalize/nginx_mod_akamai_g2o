@@ -9,32 +9,9 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
-#if (NGX_HAVE_OPENSSL_MD5_H)
-#include <openssl/md5.h>
-#else
-#include <md5.h>
-#endif
-
-#if (NGX_OPENSSL_MD5)
-#define  MD5Init    MD5_Init
-#define  MD5Update  MD5_Update
-#define  MD5Final   MD5_Final
-#endif
-
-#if (NGX_HAVE_OPENSSL_SHA1_H)
-#include <openssl/sha.h>
-#else
-#include <sha.h>
-#endif
-
-#include <openssl/sha.h>
 #include <openssl/hmac.h>
 #include <openssl/evp.h>
-
 #include <openssl/buffer.h>
-
-#define NGX_ACCESSKEY_MD5 1
-#define NGX_ACCESSKEY_SHA1 2
 
 typedef struct {
     ngx_flag_t    enable;
@@ -50,7 +27,7 @@ static char *ngx_http_akamai_g2o_merge_loc_conf(ngx_conf_t *cf,
 static ngx_int_t ngx_http_akamai_g2o_init(ngx_conf_t *cf);
 
 void base64_signature_of_data(ngx_http_request_t *r, ngx_str_t data, ngx_str_t key, u_char *signature);
-void binary_to_base64(unsigned char *md, unsigned int md_len, u_char *base64_out);
+void binary_to_base64(ngx_http_request_t *r, unsigned char *md, unsigned int md_len, u_char *base64_out);
 int try_get_auth_data_fields(ngx_str_t data, u_int *version, u_int *time, ngx_str_t *nonce);
 
 static ngx_command_t  ngx_http_akamai_g2o_commands[] = {
@@ -227,7 +204,7 @@ void base64_signature_of_data(ngx_http_request_t *r, ngx_str_t data, ngx_str_t k
     HMAC_Update(&hmac, r->uri.data, r->uri.len);
     HMAC_Final(&hmac, md, &md_len);
 
-    binary_to_base64(md, md_len, signature);
+    binary_to_base64(r, md, md_len, signature);
 }
 
 int try_get_auth_data_fields(ngx_str_t data, u_int *version, u_int *time, ngx_str_t *nonce) {
@@ -258,21 +235,24 @@ int try_get_auth_data_fields(ngx_str_t data, u_int *version, u_int *time, ngx_st
     return 1;
 }
 
-void binary_to_base64(unsigned char *md, unsigned int md_len, u_char *base64_out) {
+void binary_to_base64(ngx_http_request_t *r, unsigned char *md, unsigned int md_len, u_char *base64_out) {
     // this function taken from: https://github.com/anomalizer/ngx_aws_auth/blob/master/ngx_http_aws_auth.c
-
-    int t;
 
     BIO* b64 = BIO_new(BIO_f_base64());
     BIO* bmem = BIO_new(BIO_s_mem());  
     b64 = BIO_push(b64, bmem);
     BIO_write(b64, md, md_len);
-    t = BIO_flush(b64); /* read the value esle some gcc, throws error*/
-    BUF_MEM *bptr; 
-    BIO_get_mem_ptr(b64, &bptr);
 
-    ngx_memcpy((void*) base64_out, (void*) (bptr->data), (size_t) bptr->length-1);
-    base64_out[bptr->length-1]='\0';
+    if (BIO_flush(b64)) {
+	BUF_MEM *bptr; 
+	BIO_get_mem_ptr(b64, &bptr);
+
+	ngx_memcpy((void*) base64_out, (void*) (bptr->data), (size_t) bptr->length-1);
+	base64_out[bptr->length-1]='\0';
+    } else {
+	ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "nonce incorrect");
+	base64_out[0] = '\0';
+    }
 
     BIO_free_all(b64);
 }
