@@ -1,7 +1,7 @@
 require 'fileutils'
 include FileUtils
 
-$nginx_version = "1.0.5"
+$nginx_version = "1.0.9"
 $nginx_dir = "nginx-#{$nginx_version}"
 
 task :setup_nginx do
