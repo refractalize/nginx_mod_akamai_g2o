@@ -1,13 +1,14 @@
 require 'fileutils'
 include FileUtils
 
-$nginx_version = "1.0.9"
+$nginx_version = "1.3.13"
 $nginx_dir = "nginx-#{$nginx_version}"
 
+desc 'build, patch and install nginx in this directory'
 task :setup_nginx do
   rm_rf $nginx_dir
 
-  sh("wget http://nginx.org/download/#{$nginx_dir}.tar.gz")
+  sh("curl http://nginx.org/download/#{$nginx_dir}.tar.gz > #{$nginx_dir}.tar.gz")
 
   sh("tar xzf #{$nginx_dir}.tar.gz")
 
@@ -31,10 +32,12 @@ def make_content_dir(dir)
   cp "../setup-files/success_page.html", "prefix/html/#{dir}/stuff.html"
 end
 
+desc 'make the configuration patch containing changes for the ngo module'
 task :make_conf_patch do
   system("diff -u #{$nginx_dir}/prefix/conf/nginx.conf.default #{$nginx_dir}/prefix/conf/nginx.conf", :out => "setup-files/nginx.conf.patch")
 end
 
+desc 'run nginx'
 task :run_nginx do
   sh("#{$nginx_dir}/prefix/sbin/nginx")
 end
