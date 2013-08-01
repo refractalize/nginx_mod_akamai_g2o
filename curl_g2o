@@ -11,7 +11,7 @@ class ArgumentsError < Exception
 
     def explain
 	$stderr.puts message
-	$stderr.puts "usage: curl_g2o [curl options] --g2o-token token --g2o-password password url"
+	$stderr.puts "usage: curl_g2o [curl options] --g2o-token token --g2o-password password --output-file file url"
 	$stderr.puts "url must be a fully qualified url, starting with HTTP or HTTPS"
     end
 end
@@ -21,6 +21,7 @@ def parse_token_from_arguments(argv)
 
     parse_argument(args, 'token', '--g2o-token')
     parse_argument(args, 'password', '--g2o-password')
+    parse_argument(args, 'output', '--output-file')
 
     args[:url] = parse_url_from_arguments(args[:args])
 
@@ -75,9 +76,9 @@ def sign_data(uri, data, options = {})
   Base64.encode64(digest).chomp
 end
 
-def exec_curl(data, sign, other_arguments)
+def exec_curl(data, sign, output, other_arguments)
     p sign
-    cmd = %{curl -H "X-Akamai-G2O-Auth-Data: #{data}" -H "X-Akamai-G2O-Auth-Sign: #{sign}" #{other_arguments}}
+    cmd = %{curl -H "X-Akamai-G2O-Auth-Data: #{data}" -H "X-Akamai-G2O-Auth-Sign: #{sign}" -o #{output} #{other_arguments}}
     puts cmd
     exec cmd
 end
@@ -86,7 +87,7 @@ begin
     args = parse_token_from_arguments(ARGV)
     data = g2o_data_header(args[:token])
     sign = sign_data(args[:url], data, args)
-    exec_curl(data, sign, args[:args].join(' '))
+    exec_curl(data, sign, args[:output], args[:args].join(' '))
 rescue ArgumentsError => e
     e.explain
 end
