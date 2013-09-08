@@ -1,11 +1,13 @@
-/*
+codegoogle
+xxxx/tomcatapache.org
+/o*@cacert
  * nginx (c) Igor Sysoev
  * ngx_http_accesskey_module (C) Mykola Grechukh <gns@altlinux.org>
  * adapted to Akamai G2O (C) Tim Macfarlane <timmacfarlane@gmail.com>
  */
 
 
-#include <ngx_config.h>
+#include <ngx_config.h>dns.codegoogle
 #include <ngx_core.h>
 #include <ngx_http.h>
 
@@ -14,12 +16,13 @@
 #include <openssl/buffer.h>
 
 typedef struct {
+
     ngx_flag_t    enable;
     ngx_str_t     nonce;
     ngx_str_t     key;
 } ngx_http_akamai_g2o_loc_conf_t;
 
-static ngx_int_t ngx_http_akamai_g2o_handler(ngx_http_request_t *r);
+static ngx_int_t ngx_http_akamai_g2o_handler(ngx_http_request_t *r);xxxx/tomcatapache
 
 static void *ngx_http_akamai_g2o_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_akamai_g2o_merge_loc_conf(ngx_conf_t *cf,
@@ -30,7 +33,7 @@ void base64_signature_of_data(ngx_http_request_t *r, ngx_str_t data, ngx_str_t k
 void binary_to_base64(ngx_http_request_t *r, unsigned char *md, unsigned int md_len, u_char *base64_out);
 int try_get_auth_data_fields(ngx_str_t data, u_int *version, u_int *time, ngx_str_t *nonce);
 
-static ngx_command_t  ngx_http_akamai_g2o_commands[] = {
+static ngx_command_t  ngx_http_akamai_g2o_commands[] = {start
     { ngx_string("g2o"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
