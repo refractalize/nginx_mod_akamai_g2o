@@ -1,7 +1,7 @@
 require 'fileutils'
 include FileUtils
 
-$nginx_version = "1.3.13"
+$nginx_version = "1.6.1"
 $nginx_dir = "nginx-#{$nginx_version}"
 
 desc 'build, patch and install nginx in this directory'
