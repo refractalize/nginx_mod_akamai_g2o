@@ -259,9 +259,9 @@ static u_char*
 get_next_auth_data_token(u_char* start, u_char* end, ngx_str_t* output)
 {
 	output->data = start;
-	for (; start < end; start++)
+	for (; start + 1 < end; start++)
 	{
-		if (start[0] == ',' && start + 1 < end && start[1] == ' ')
+		if (start[0] == ',' && start[1] == ' ')
 		{
 			output->len = start - output->data;
 			return start + 2;
