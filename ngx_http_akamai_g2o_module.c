@@ -249,7 +249,7 @@ void base64_signature_of_data(ngx_http_request_t *r, ngx_str_t data, ngx_str_t k
 
     HMAC_Init(&hmac, key.data, key.len, alcf->hash_function());
     HMAC_Update(&hmac, data.data, data.len);
-    HMAC_Update(&hmac, r->uri.data, r->uri.len);
+    HMAC_Update(&hmac, r->unparsed_uri.data, r->unparsed_uri.len);
     HMAC_Final(&hmac, md, &md_len);
 
     binary_to_base64(r, md, md_len, signature);
