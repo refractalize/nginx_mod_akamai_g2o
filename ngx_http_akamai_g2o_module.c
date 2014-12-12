@@ -255,30 +255,58 @@ void base64_signature_of_data(ngx_http_request_t *r, ngx_str_t data, ngx_str_t k
     binary_to_base64(r, md, md_len, signature);
 }
 
-int try_get_auth_data_fields(ngx_str_t data, u_int *version, u_int *time, ngx_str_t *nonce) {
-    char *version_field = strtok((char*) data.data, ", ");
-    if (!version_field)
-        return 0;
-    char *ghost_ip_field = strtok(NULL, ", ");
-    if (!ghost_ip_field)
-        return 0;
-    char *client_ip_field = strtok(NULL, ", ");
-    if (!client_ip_field)
-        return 0;
-    char *time_field = strtok(NULL, ", ");
-    if (!time_field)
-        return 0;
-    char *unique_id_field = strtok(NULL, ", ");
-    if (!unique_id_field)
-        return 0;
-    char *nonce_field = strtok(NULL, ", ");
-    if (!nonce_field)
-        return 0;
+static u_char* 
+get_next_auth_data_token(u_char* start, u_char* end, ngx_str_t* output)
+{
+	output->data = start;
+	for (; start + 1 < end; start++)
+	{
+		if (start[0] == ',' && start[1] == ' ')
+		{
+			output->len = start - output->data;
+			return start + 2;
+		}
+	}
+	output->len = end - output->data;
+	return end;
+}
 
-    *version = atoi(version_field);
-    *time = atoi(time_field);
-    nonce->data = (unsigned char*) nonce_field;
-    nonce->len = strlen(nonce_field);
+int try_get_auth_data_fields(ngx_str_t data, u_int *version, u_int *time, ngx_str_t *nonce) {
+	u_char* p = data.data;
+	u_char* end = data.data + data.len;
+	ngx_str_t cur_token;
+
+	// version
+	p = get_next_auth_data_token(p, end, &cur_token);
+	if (cur_token.len == 0)
+		return 0;
+	*version = ngx_atoi(cur_token.data, cur_token.len);
+
+	// ghost ip
+	p = get_next_auth_data_token(p, end, &cur_token);
+	if (cur_token.len == 0)
+		return 0;
+
+	// client ip
+	p = get_next_auth_data_token(p, end, &cur_token);
+	if (cur_token.len == 0)
+		return 0;
+
+	// time
+	p = get_next_auth_data_token(p, end, &cur_token);
+	if (cur_token.len == 0)
+		return 0;
+	*time = ngx_atoi(cur_token.data, cur_token.len);
+
+	// unique id
+	p = get_next_auth_data_token(p, end, &cur_token);
+	if (cur_token.len == 0)
+		return 0;
+
+	// nonce
+	p = get_next_auth_data_token(p, end, nonce);
+	if (nonce->len == 0)
+		return 0;
 
     return 1;
 }
