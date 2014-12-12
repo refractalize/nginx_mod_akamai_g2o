@@ -19,3 +19,15 @@ Place the following settings (`g2o`, `g2o_nonce` and `g2o_key`) into a main, ser
         g2o_nonce  "token";
         g2o_key    "a_password";
     }
+
+## Testing
+
+Get ruby, then install dependencies:
+
+    bundle
+
+Then run the tests:
+
+    rspec
+
+Write more tests in `spec/*.rb`
