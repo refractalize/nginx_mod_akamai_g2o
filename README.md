@@ -7,6 +7,10 @@ Controls access to content from Akamai edge servers, using the G2O headers: `X-A
 Like any other nginx module use the `--add-module` option when configuring:
 
     ./configure --add-module=$PATH_TO_G2O_DIR
+or
+
+    ./configure --add-dynamic-module=$PATH_TO_G2O_DIR
+if you want to use it as dynamic module (nginx >= 1.9.11 is required)
 
 It requires OpenSSL.
 
