@@ -327,10 +327,12 @@ base64_signature_of_data(ngx_http_request_t *r, ngx_str_t data, ngx_str_t key, u
 
     alcf = ngx_http_get_module_loc_conf(r, ngx_http_akamai_g2o_module);
 
+    HMAC_CTX_init(&hmac);
     HMAC_Init(&hmac, key.data, key.len, alcf->hash_function());
     HMAC_Update(&hmac, data.data, data.len);
     HMAC_Update(&hmac, r->unparsed_uri.data, r->unparsed_uri.len);
     HMAC_Final(&hmac, md, &md_len);
+    HMAC_CTX_cleanup(&hmac);
 
     base64_src.data = md;
     base64_src.len = md_len;
