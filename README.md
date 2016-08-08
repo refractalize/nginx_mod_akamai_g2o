@@ -1,33 +1,5 @@
-# Akamai G2O module for Nginx
+# This Repository Has [Moved](https://github.com/kaltura/nginx_mod_akamai_g2o)
 
-Controls access to content from Akamai edge servers, using the G2O headers: `X-Akamai-G2O-Auth-Data` and `X-Akamai-G2O-Auth-Sign`.
+**Akamai G2O module for Nginx** is now being maintained at [Kaltura](https://github.com/kaltura/nginx_mod_akamai_g2o) by [@erankor](https://github.com/erankor)
 
-## Installation
-
-Like any other nginx module use the `--add-module` option when configuring:
-
-    ./configure --add-module=$PATH_TO_G2O_DIR
-
-It requires OpenSSL.
-
-## Configuration
-
-Place the following settings (`g2o`, `g2o_nonce` and `g2o_key`) into a main, server or location section of your conf file:
-
-    location /download {
-        g2o        on;
-        g2o_nonce  "token";
-        g2o_key    "a_password";
-    }
-
-## Testing
-
-Get ruby, then install dependencies:
-
-    bundle
-
-Then run the tests:
-
-    rspec
-
-Write more tests in `spec/*.rb`
+Thank you to all contributors [@erankor](https://github.com/erankor), [@UnitedMarsupials](https://github.com/UnitedMarsupials) and [@aconstantin](https://github.com/aconstantin).
